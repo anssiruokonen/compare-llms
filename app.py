@@ -22,23 +22,17 @@ if use_lm_studio:
 # Text area for the prompt
 prompt = st.text_area("Enter your prompt:")
 
+# Asynchronous update callback to update the UI
+async def update_ui_callback(api_name, task):
+    response = await task
+    st.subheader(f"{api_name} Response")
+    st.write(response)
+
 # Function to call LLMs and display responses
 def compare_responses():
     if prompt.strip():
         model_name = lm_studio_model_name if use_lm_studio else None
-        responses = asyncio.run(fetch_all_responses(prompt, system_prompt, model_name, use_lm_studio, use_openai, use_anthropic))
-        
-        if use_lm_studio:
-            st.subheader("LM Studio Response")
-            st.write(responses.pop(0))
-
-        if use_openai:
-            st.subheader("OpenAI Response")
-            st.write(responses.pop(0))
-
-        if use_anthropic:
-            st.subheader("Anthropic Response")
-            st.write(responses.pop(0))
+        asyncio.run(fetch_all_responses(prompt, system_prompt, model_name, use_lm_studio, use_openai, use_anthropic, update_ui_callback))
     else:
         st.error("Prompt must not be empty.")
 
