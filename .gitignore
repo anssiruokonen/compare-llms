@@ -1,8 +1,10 @@
-# misc
+# Ignore miscellaneous system files
 .DS_Store
 *.pem
 
-# local env files
-.env*.localvenv/
+# Ignore local environment files and directories
 .env
 env/
+
+# Ignore Python cache directories
+__pycache__/
