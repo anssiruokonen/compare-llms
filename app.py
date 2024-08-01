@@ -1,7 +1,7 @@
 import streamlit as st
 from api_calls import call_lm_studio_api, call_openai_api, call_anthropic_api
 
-st.title("LLM API Comparison")
+st.title("LLM Comparison")
 
 # Checkboxes to select which LLMs to call
 use_lm_studio = st.checkbox("Use LM Studio", value=True)
