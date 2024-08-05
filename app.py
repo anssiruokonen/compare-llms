@@ -1,5 +1,6 @@
 import streamlit as st
 import asyncio
+import aiohttp
 from api_calls import call_lm_studio_api, call_openai_api, call_anthropic_api
 
 st.set_page_config(layout="wide")  # To ensure the page uses the full width
@@ -19,9 +20,19 @@ if "current_chat" not in st.session_state:
     st.session_state["current_chat"] = None
 if "rerun_trigger" not in st.session_state:
     st.session_state["rerun_trigger"] = 0
+if "lm_studio_models" not in st.session_state:
+    st.session_state["lm_studio_models"] = []
 
 # Default system prompt
 default_system_prompt = "You are a helpful, smart, kind, and efficient AI assistant. You always fulfill the user's requests to the best of your ability."
+
+async def fetch_lm_studio_models():
+    url = "http://localhost:1234/v1/models"
+    async with aiohttp.ClientSession() as session:
+        async with session.get(url) as response:
+            data = await response.json()
+            st.session_state["lm_studio_models"] = [model["id"] for model in data.get("data", [])]
+           
 
 async def fetch_all_responses(lm_studio_messages, openai_messages, anthropic_messages, system_prompt, model_name, use_lm_studio, use_openai, use_anthropic, update_ui_callback):
     tasks = []
@@ -43,9 +54,15 @@ def show_main_page():
     use_openai = st.checkbox("Use OpenAI", value=True)
     use_anthropic = st.checkbox("Use Anthropic", value=True)
 
-    # Input for LM Studio model name, shown only if the LM Studio checkbox is checked
-    if use_lm_studio:
-        lm_studio_model_name = st.text_input("Enter the LM Studio model name:", "microsoft/Phi-3-mini-4k-instruct-gguf")
+    # Fetch LM Studio models when checkbox is selected
+    if use_lm_studio and not st.session_state["lm_studio_models"]:
+        asyncio.run(fetch_lm_studio_models())
+
+    # Dropdown for LM Studio model selection
+    if use_lm_studio and st.session_state["lm_studio_models"]:
+        lm_studio_model_name = st.selectbox("Select LM Studio model:", st.session_state["lm_studio_models"])
+    else:
+        lm_studio_model_name = None
 
     # Text area for the prompt
     prompt = st.text_area("Enter your prompt:")
@@ -90,6 +107,12 @@ def show_main_page():
     if st.button("Compare Responses", key="compare_responses"):
         compare_responses()
 
+async def update_ui_callback(api_name, task):
+    response = await task
+    st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"].append({"role": "assistant", "content": response})
+    st.subheader(f"{api_name} Response")
+    st.write(response)
+
 def show_chat_page():
     st.title("Continue Conversation")
 
@@ -108,69 +131,69 @@ def show_chat_page():
             st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"] = []
 
         # Display conversation history
-        if st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"]:
-            st.subheader(f"{api_name} Conversation History")
-            for message in st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"]:
-                st.write(f"{message['role'].capitalize()}: {message['content']}")
+        st.subheader(f"{api_name} Conversation History")
+        for message in st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"]:
+            st.write(f"{message['role'].capitalize()}: {message['content']}")
 
-        # Text area for the prompt
-        prompt = st.text_area("Enter your prompt:")
+        # Create a form
+        with st.form(key='chat_form'):
+            prompt = st.text_input("Enter your message:")
+            submit_button = st.form_submit_button(label='Continue Conversation')
 
-        # Asynchronous function to update the UI
-        async def update_ui(api_name, task):
-            response = await task
-            st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"].append({"role": "assistant", "content": response})
-            st.session_state["rerun_trigger"] += 1
-            st.experimental_set_query_params(rerun=st.session_state["rerun_trigger"])
-
-        # Function to continue the conversation
-        def continue_conversation():
+        # Handle form submission
+        if submit_button:
             if prompt.strip():
                 user_message = {"role": "user", "content": prompt}
                 st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"].append(user_message)
 
-                messages = st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"]
+                if api_name in ["LM Studio", "OpenAI"]:
+                    messages = [{"role": "system", "content": default_system_prompt}] + st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"]
+                else:  # Anthropic
+                    messages = st.session_state[f"{api_name.replace(' ', '_').lower()}_conversation"]
 
                 if api_name == "LM Studio":
-                    asyncio.run(update_ui(api_name, call_lm_studio_api(messages)))
+                    asyncio.run(update_ui_callback(api_name, call_lm_studio_api(messages)))
                 elif api_name == "OpenAI":
-                    asyncio.run(update_ui(api_name, call_openai_api(messages)))
+                    asyncio.run(update_ui_callback(api_name, call_openai_api(messages)))
                 elif api_name == "Anthropic":
-                    asyncio.run(update_ui(api_name, call_anthropic_api(messages, default_system_prompt)))
-                
-                # Set view mode to chat after sending the message
-                st.session_state["view_mode"] = "chat"  # Ensure we stay in the chat view
+                    asyncio.run(update_ui_callback(api_name, call_anthropic_api(messages, default_system_prompt)))
+
+                # Force a rerun to update the displayed conversation history
+                st.rerun()
             else:
                 st.error("Prompt must not be empty.")
+            
 
-        # Button to continue the conversation
-        if st.button("Continue Conversation"):
-            continue_conversation()
+   # col1, col2 = st.columns(2)
+    #with col1:
+    #    if st.button("Back to Main"):
+    #        st.session_state["view_mode"] = "main"
+    #        st.session_state["rerun_trigger"] += 1
 
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("Back to Main"):
-            st.session_state["view_mode"] = "main"
-            st.session_state["rerun_trigger"] += 1
-            st.experimental_set_query_params(rerun=st.session_state["rerun_trigger"])
-
-    with col2:
-        if st.button("Change to Chat View"):
-            st.session_state["view_mode"] = "chat"
-            st.session_state["rerun_trigger"] += 1
-            st.experimental_set_query_params(rerun=st.session_state["rerun_trigger"])
+    #with col2:
+    #    if st.button("Change to Chat View"):
+    #        st.session_state["view_mode"] = "chat"
+    #        st.session_state["rerun_trigger"] += 1
 
 # Display the buttons at the top
-col1, col2 = st.columns([1, 1])
+col1, col2, col3 = st.columns([1, 1, 1])
 with col1:
     if st.button("Main"):
         st.session_state["view_mode"] = "main"
-        st.experimental_set_query_params(rerun=st.session_state["rerun_trigger"])
+        st.session_state["rerun_trigger"] += 1
 
 with col2:
     if st.button("Chat"):
         st.session_state["view_mode"] = "chat"
-        st.experimental_set_query_params(rerun=st.session_state["rerun_trigger"])
+        st.session_state["rerun_trigger"] += 1
+
+with col3:
+    if st.button("Clear All History"):
+        st.session_state["lm_studio_conversation"] = []
+        st.session_state["openai_conversation"] = []
+        st.session_state["anthropic_conversation"] = []
+        st.success("All conversation histories have been cleared.")
+        st.session_state["rerun_trigger"] += 1
 
 if st.session_state["view_mode"] == "main":
     show_main_page()
