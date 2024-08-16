@@ -10,7 +10,7 @@ load_dotenv()
 openai.api_key = os.getenv('OPENAI_API_KEY')
 anthropic.api_key = os.getenv('ANTHROPIC_API_KEY')
 
-async def call_lm_studio_api(messages, model="microsoft/Phi-3-mini-4k-instruct-gguf"):
+async def call_lm_studio_api(messages, model=""):
     try:
         client = openai.OpenAI(
             api_key="lm-studio", 

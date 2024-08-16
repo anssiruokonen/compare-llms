@@ -5,7 +5,7 @@ from api_calls import call_lm_studio_api, call_openai_api, call_anthropic_api
 
 st.set_page_config(layout="wide")  # To ensure the page uses the full width
 
-st.title("LLM API Comparison")
+st.title("LLM Comparison")
 
 # Initialize session state variables for conversation history and view mode
 if "lm_studio_conversation" not in st.session_state:
@@ -28,11 +28,22 @@ default_system_prompt = "You are a helpful, smart, kind, and efficient AI assist
 
 async def fetch_lm_studio_models():
     url = "http://localhost:1234/v1/models"
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
-            data = await response.json()
-            st.session_state["lm_studio_models"] = [model["id"] for model in data.get("data", [])]
-           
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    st.session_state["lm_studio_models"] = [model["id"] for model in data.get("data", [])]
+                else:
+                    st.session_state["lm_studio_models"] = []
+                    st.error(f"Failed to fetch LM Studio models. Status code: {response.status}")
+    except aiohttp.ClientError as e:
+        st.session_state["lm_studio_models"] = []
+        st.error(f"Error connecting to LM Studio: {str(e)}")
+    
+    # Uncheck the use_lm_studio checkbox if no models are available
+    if not st.session_state["lm_studio_models"]:
+        st.session_state["use_lm_studio"] = True
 
 async def fetch_all_responses(lm_studio_messages, openai_messages, anthropic_messages, system_prompt, model_name, use_lm_studio, use_openai, use_anthropic, update_ui_callback):
     tasks = []
@@ -50,7 +61,8 @@ def show_main_page():
     system_prompt = st.text_area("Enter the system prompt:", value=default_system_prompt)
 
     # Checkboxes to select which LLMs to call
-    use_lm_studio = st.checkbox("Use LM Studio", value=True)
+    use_lm_studio = st.checkbox("Use LM Studio", value=st.session_state.get("use_lm_studio", False))
+    st.session_state["use_lm_studio"] = use_lm_studio  # Update session state
     use_openai = st.checkbox("Use OpenAI", value=True)
     use_anthropic = st.checkbox("Use Anthropic", value=True)
 
@@ -164,16 +176,7 @@ def show_chat_page():
                 st.error("Prompt must not be empty.")
             
 
-   # col1, col2 = st.columns(2)
-    #with col1:
-    #    if st.button("Back to Main"):
-    #        st.session_state["view_mode"] = "main"
-    #        st.session_state["rerun_trigger"] += 1
 
-    #with col2:
-    #    if st.button("Change to Chat View"):
-    #        st.session_state["view_mode"] = "chat"
-    #        st.session_state["rerun_trigger"] += 1
 
 # Display the buttons at the top
 col1, col2, col3 = st.columns([1, 1, 1])
